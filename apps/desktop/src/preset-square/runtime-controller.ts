@@ -42,7 +42,7 @@ const TRUSTED_BUILD_PACKAGES = [
 ] as const
 
 /** One bounded no-shell runtime process request. */
-export interface RuntimeProcessRequest {
+interface RuntimeProcessRequest {
   readonly command: string
   readonly args: readonly string[]
   readonly cwd?: string
@@ -51,7 +51,7 @@ export interface RuntimeProcessRequest {
 }
 
 /** Captured result from one bounded runtime process. */
-export interface RuntimeProcessResult {
+interface RuntimeProcessResult {
   readonly code: number | null
   readonly stdout: string
   readonly stderr: string
@@ -161,6 +161,27 @@ export function withPresetRuntimeEnvironment(
     NODE_PATH: uniquePathEntries([join(paths.packages, 'node_modules'), environment.NODE_PATH]),
     PLAYWRIGHT_BROWSERS_PATH: paths.browsers,
   }
+}
+
+/**
+ * Expose the bundled package manager to Host plugins without relying on a shell installation.
+ * @param options Desktop runtime paths and launch mode for the packaged pnpm entry.
+ * @returns Completion after the platform command wrapper has been replaced atomically.
+ */
+export async function prepareBundledPackageManagerCommand(
+  options: Pick<
+    PresetRuntimeControllerOptions,
+    'homeDirectory' | 'nodeExecutable' | 'packageManagerEntry' | 'electronRunAsNode' | 'platform'
+  >,
+): Promise<void> {
+  await writeCommandWrapper(
+    presetRuntimePaths(options.homeDirectory),
+    options.platform ?? process.platform,
+    'pnpm',
+    options.nodeExecutable,
+    [options.packageManagerEntry],
+    options.electronRunAsNode,
+  )
 }
 
 function quotePosix(value: string): string {

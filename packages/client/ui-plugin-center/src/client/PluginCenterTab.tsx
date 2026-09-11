@@ -447,6 +447,9 @@ export function PluginCenterTab({
   const [recovery, setRecovery] = useState<PluginRecoverySnapshot | null>(null)
   const [recoveryBusy, setRecoveryBusy] = useState(false)
   const [diagnosticResult, setDiagnosticResult] = useState<'saved' | 'cancelled' | 'failed' | null>(null)
+  const safeRecovery = recovery?.phase === 'recovery-failed'
+    && recovery.recoveryReasonCode === 'runtime-verification-failed'
+  const catalogMutationsEnabled = mutationsEnabled && !safeRecovery
 
   const criteria = useMemo<CatalogListQuery>(() => ({
     catalogKind: kind,
@@ -538,6 +541,12 @@ export function PluginCenterTab({
   }, [available, getRecovery, onRecoveryState])
 
   useEffect(() => {
+    if (!safeRecovery) return
+    setInstalledOpen(true)
+    persistInstalledOpen(true)
+  }, [safeRecovery])
+
+  useEffect(() => {
     if (operation?.phase !== 'committed') return
     const terminalIdentity = `${operation.operationId}:${operation.updatedAt}`
     if (observedTerminal.current === terminalIdentity) return
@@ -603,14 +612,9 @@ export function PluginCenterTab({
     )
   }
 
-  const openDetail = (
-    entry: CatalogSummary,
-    element: HTMLButtonElement,
-    initialCompatibility?: CompatibilityState,
-  ): void => {
+  const loadDetail = (entry: CatalogSummary, initialCompatibility?: CompatibilityState): void => {
     const request = detailRequest.current + 1
     detailRequest.current = request
-    detailOpener.current = element
     setDetailEntry(entry)
     setDetailState({ status: 'loading' })
     setCompatibilityState(entry.scope === 'public' ? initialCompatibility ?? { status: 'loading' } : null)
@@ -628,6 +632,19 @@ export function PluginCenterTab({
         () => { if (detailRequest.current === request) setCompatibilityState({ status: 'error' }) },
       )
     }
+  }
+
+  const openDetail = (
+    entry: CatalogSummary,
+    element: HTMLButtonElement,
+    initialCompatibility?: CompatibilityState,
+  ): void => {
+    detailOpener.current = element
+    loadDetail(entry, initialCompatibility)
+  }
+
+  const retryDetail = (): void => {
+    if (detailEntry !== null) loadDetail(detailEntry)
   }
 
   const closeDetail = (): void => {
@@ -661,7 +678,7 @@ export function PluginCenterTab({
 
   const requestCatalogInstall = (entry: CatalogSummary, element: HTMLButtonElement): void => {
     if (
-      !mutationsEnabled
+      !catalogMutationsEnabled
       || entry.scope !== 'public'
       || entry.installed
       || entry.compatibility.status === 'incompatible'
@@ -929,8 +946,12 @@ export function PluginCenterTab({
                   : <IconWarningOutline16 size={18} />}
               </div>
               <div className={css.recoveryContent}>
-                <strong>{t(recovery.phase === 'recovering' ? 'recoveryRunningTitle' : 'recoveryFailedTitle')}</strong>
-                <p>{t(recovery.phase === 'recovering' ? 'recoveryRunning' : 'recoveryFailed')}</p>
+                <strong>{t(recovery.phase === 'recovering'
+                  ? 'recoveryRunningTitle'
+                  : safeRecovery ? 'safeModeTitle' : 'recoveryFailedTitle')}</strong>
+                <p>{t(recovery.phase === 'recovering'
+                  ? 'recoveryRunning'
+                  : safeRecovery ? 'safeModeDescription' : 'recoveryFailed')}</p>
                 <div className={css.recoveryMeta}>
                   <span>{t('recoveryAttempt')} {recovery.attempt}</span>
                 </div>
@@ -1004,6 +1025,7 @@ export function PluginCenterTab({
               <InstalledPluginsPanel
                 state={installed}
                 mutationsEnabled={mutationsEnabled}
+                safeRecovery={safeRecovery}
                 onRetry={retryInstalled}
                 onSettings={openPluginSettings}
                 onAction={requestManagement}
@@ -1054,7 +1076,7 @@ export function PluginCenterTab({
                   key={`${entry.pluginId}@${entry.version}`}
                   entry={entry}
                   installedItem={installedCatalogItems.get(`${entry.catalogKind}:${entry.pluginId}`) ?? null}
-                  mutationsEnabled={mutationsEnabled}
+                  mutationsEnabled={catalogMutationsEnabled}
                   operation={operation}
                   checking={catalogInstall?.status === 'checking'
                     && catalogInstall.entry.pluginId === entry.pluginId
@@ -1075,7 +1097,7 @@ export function PluginCenterTab({
                   section={section}
                   entries={ready.sections[section]}
                   installedItems={installedCatalogItems}
-                  mutationsEnabled={mutationsEnabled}
+                  mutationsEnabled={catalogMutationsEnabled}
                   operation={operation}
                   checkingEntry={catalogInstall?.status === 'checking'
                     ? `${catalogInstall.entry.pluginId}@${catalogInstall.entry.version}`
@@ -1094,10 +1116,11 @@ export function PluginCenterTab({
             entry={detailEntry}
             state={detailState}
             compatibility={compatibilityState}
-            mutationsEnabled={mutationsEnabled}
+            mutationsEnabled={catalogMutationsEnabled}
             operation={operation}
             operationRequestFailed={operationRequestFailed}
             onInstall={() => { startInstall(detailEntry) }}
+            onRetry={retryDetail}
             t={t}
           />
           : null}
